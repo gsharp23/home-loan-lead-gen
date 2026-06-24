@@ -1,0 +1,26 @@
+# Secrets & credentials
+.env
+credentials.json
+*.pem
+
+# Vector store
+chromadb/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfplan
+crash.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.coverage
+build/
+dist/
+*.egg-info/
