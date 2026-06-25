@@ -22,6 +22,8 @@ EventBridge cron at 7:00 AM UTC.
 
 | Layer | Tech |
 | --- | --- |
+| Lead capture | Meta Lead Ads (Facebook/Instagram) |
+| Automation | Zapier (Meta → Google Sheets) |
 | Language | Python 3.11 |
 | LLM | Claude Sonnet (`claude-sonnet-4-6`) via the `anthropic` SDK |
 | Lead source | Google Sheets (`gspread`, service account `credentials.json`) |
@@ -33,24 +35,35 @@ EventBridge cron at 7:00 AM UTC.
 ## Architecture
 
 ```
-                         ┌──────────────────────┐
-   EventBridge cron      │   AWS Lambda          │
-   (daily 07:00 UTC) ───▶│   agent/main.py       │
-                         │   lambda_handler()    │
-                         └───────────┬───────────┘
-                                     │
-        ┌────────────────────────────┼────────────────────────────┐
-        ▼                            ▼                             ▼
-  Google Sheets               Enrichment APIs               Claude Sonnet
-  (gspread)                   BatchData + Census             scorer + outreach
-        │                            │                             │
-        │   new rows                 │  property + demographics    │  score 1-10
-        └──────────────┬─────────────┘                             │  + SMS draft
-                       ▼                                            │
-              enriched lead ──▶ RAG match (ChromaDB / programs/) ───┘
-                       │
-                       ▼
-            results written back / logged
+┌───────────────────────────────────────────────┐
+│ Meta Lead Ads  (Facebook + Instagram)         │
+│ new lead form submission                      │
+└───────────────────────────────────────────────┘
+                        ▼
+┌───────────────────────────────────────────────┐
+│ Zapier                                        │
+│ • detects new lead form submission            │
+│ • normalizes fields                           │
+│ • pushes new row to Google Sheets             │
+└───────────────────────────────────────────────┘
+                        ▼
+┌───────────────────────────────────────────────┐
+│ Google Sheets  (Home Loan Leads)              │
+└───────────────────────────────────────────────┘
+                        ▼
+┌───────────────────────────────────────────────┐
+│ AWS Lambda  (daily 7am UTC · EventBridge)     │
+│ agent/main.py orchestrates:                   │
+│   enrich.py    → BatchData + Census API       │
+│   rag.py       → ChromaDB loan-program match  │
+│   scorer.py    → Claude Sonnet score 1–10     │
+│   outreach.py  → Claude Sonnet SMS draft      │
+└───────────────────────────────────────────────┘
+                        ▼
+┌───────────────────────────────────────────────┐
+│ Results written back to Google Sheets         │
+│ Daily digest sent to loan officer             │
+└───────────────────────────────────────────────┘
 ```
 
 Each module is independently importable and unit-testable:
@@ -65,14 +78,34 @@ Each module is independently importable and unit-testable:
 
 ## Setup
 
-1. **Clone & create a virtualenv**
+1. **Meta + Zapier Setup**
+
+   Leads originate from Meta Lead Ads and reach the spreadsheet through Zapier —
+   set this up before the rest of the pipeline.
+
+   - Create a **Meta Business** account.
+   - Build a **Lead Gen campaign** with a lead form (runs on Facebook + Instagram).
+   - In **Zapier**, create a Zap:
+     - **Trigger:** Meta Lead Ads → New Lead
+     - **Action:** Google Sheets → Create Row
+   - Map the lead-form fields to the spreadsheet columns:
+
+     | Meta field | Google Sheets column |
+     | --- | --- |
+     | `full_name` | Column C (Name) |
+     | `phone_number` | Column E (Phone) |
+     | `email` | Column F (Email) |
+     | `zip_code` | Column G (Location) |
+     | `budget` | Column H (Price Range) |
+
+2. **Clone & create a virtualenv**
 
    ```bash
    python3 -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
    ```
 
-2. **Configure secrets**
+3. **Configure secrets**
 
    ```bash
    cp .env.example .env
@@ -87,19 +120,19 @@ Each module is independently importable and unit-testable:
    | `GOOGLE_SHEET_NAME` | Name of the leads spreadsheet (default `Home Loan Leads`) |
    | `AWS_REGION` | Region for the deployed Lambda (default `us-east-1`) |
 
-3. **Google service account**
+4. **Google service account**
 
    Create a Google Cloud service account with the Sheets API enabled, download
    its key as `credentials.json` in the project root, and share the spreadsheet
    with the service account's email. `credentials.json` is gitignored.
 
-4. **Build the RAG index** (first run does this automatically; to pre-build):
+5. **Build the RAG index** (first run does this automatically; to pre-build):
 
    ```bash
    python -c "from agent.rag import build_index; build_index()"
    ```
 
-5. **Run locally**
+6. **Run locally**
 
    ```bash
    python -m agent.main

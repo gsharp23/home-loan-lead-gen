@@ -1,8 +1,21 @@
 """Orchestrator + AWS Lambda entrypoint for the home-loan lead-gen pipeline.
 
-Reads new rows from a Google Sheet, then for each lead: enrich -> match programs
--> score -> draft outreach. Results are written back to the sheet and returned in
-the handler's summary.
+How leads enter the system (upstream of this module):
+
+    Meta Lead Ads (Facebook + Instagram)
+        -> a prospect submits a lead form
+    Zapier
+        -> Trigger: Meta Lead Ads "New Lead"
+        -> normalizes the form fields (full_name, phone_number, email,
+           zip_code, budget)
+        -> Action: Google Sheets "Create Row" in the "Home Loan Leads" sheet
+    Google Sheets ("Home Loan Leads")
+        -> each new submission becomes a new row
+
+This Lambda agent runs daily (07:00 UTC via EventBridge) and picks up from
+there: it reads the new rows Zapier created, then for each lead runs
+enrich -> match programs -> score -> draft outreach. Results are written back
+to the sheet and returned in the handler's summary.
 """
 import logging
 import os
