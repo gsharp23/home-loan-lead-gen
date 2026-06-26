@@ -97,6 +97,9 @@ def get_census_data(zip_code: str) -> dict:
     try:
         resp = requests.get(CENSUS_URL, params=params, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
+        # Non-ZCTA ZIPs (e.g. PO-box-only ZIPs) return an empty body, not JSON.
+        if not resp.text.strip():
+            return {"error": "no census data for this ZIP (not a ZCTA)"}
         rows = resp.json()
         # Census returns [header_row, data_row]; bail if no data row.
         if not isinstance(rows, list) or len(rows) < 2:
@@ -105,12 +108,19 @@ def get_census_data(zip_code: str) -> dict:
         record = dict(zip(header, values))
         return {
             "name": record.get("NAME"),
-            "median_household_income": _to_int(record.get("B19013_001E")),
-            "population": _to_int(record.get("B01003_001E")),
+            # Census uses large negative sentinels (e.g. -666666666) for
+            # unavailable/suppressed estimates — treat those as missing.
+            "median_household_income": _clean(_to_int(record.get("B19013_001E"))),
+            "population": _clean(_to_int(record.get("B01003_001E"))),
         }
     except requests.RequestException as exc:
         logger.error("Census lookup failed for %s: %s", zip_code, exc)
         return {"error": str(exc)}
+
+
+def _clean(value):
+    """Drop Census negative annotation sentinels (e.g. -666666666) -> None."""
+    return None if (value is None or value < 0) else value
 
 
 def _to_int(value):
