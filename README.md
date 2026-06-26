@@ -34,7 +34,9 @@ EventBridge cron at 7:00 AM UTC.
 
 ## Architecture
 
-```
+<div align="center">
+
+<pre>
 ┌───────────────────────────────────────────────┐
 │ Meta Lead Ads  (Facebook + Instagram)         │
 │ new lead form submission                      │
@@ -64,7 +66,9 @@ EventBridge cron at 7:00 AM UTC.
 │ Results written back to Google Sheets         │
 │ Daily digest sent to loan officer             │
 └───────────────────────────────────────────────┘
-```
+</pre>
+
+</div>
 
 Each module is independently importable and unit-testable:
 
