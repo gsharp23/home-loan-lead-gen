@@ -20,13 +20,14 @@ def _text_response(text: str):
 
 
 SAMPLE_LEAD = {
-    "first_name": "Jordan",
-    "zip_code": "30301",
-    "loan_amount": 250000,
-    "credit_score": 640,
-    "income": 72000,
-    "property_type": "single-family",
-    "first_time_buyer": "yes",
+    "Lead ID": "LEAD-0001",
+    "Date": "2026-06-25",
+    "Name": "Jordan Lee",
+    "Source": "Meta - Facebook",
+    "Phone": "555-0100",
+    "Email": "jordan@example.com",
+    "Zip Code": "30301",
+    "Budget": "250000",
 }
 
 
@@ -68,7 +69,7 @@ def test_enrich_lead_combines_sources():
         out = enrich.enrich_lead(SAMPLE_LEAD)
     assert out["enrichment"]["property"]["result_count"] == 1
     assert out["enrichment"]["demographics"]["population"] == 100
-    assert out["first_name"] == "Jordan"  # original fields preserved
+    assert out["Name"] == "Jordan Lee"  # original fields preserved
 
 
 # --------------------------------------------------------------------------- #
@@ -150,12 +151,12 @@ def test_write_outreach_returns_message():
 def test_read_new_leads_filters_processed():
     worksheet = MagicMock()
     worksheet.get_all_records.return_value = [
-        {"first_name": "A", "processed": ""},
-        {"first_name": "B", "processed": "yes"},
-        {"first_name": "C"},
+        {"Name": "A", "Status": ""},
+        {"Name": "B", "Status": "Processed"},
+        {"Name": "C"},
     ]
     leads = main.read_new_leads(worksheet)
-    names = [lead["first_name"] for lead in leads]
+    names = [lead["Name"] for lead in leads]
     assert names == ["A", "C"]
     assert leads[0]["_row"] == 2  # header is row 1
 
@@ -174,6 +175,33 @@ def test_process_lead_runs_pipeline():
     assert result["score"] == 7
     assert result["programs"] == ["fha"]
     assert result["outreach"] == "Hi Jordan!"
+
+
+def test_write_result_maps_to_sheet_columns():
+    headers = [
+        "Lead ID", "Date", "Name", "Source", "Phone", "Email", "Zip Code",
+        "Budget", "Score", "Status", "Outreach Draft", "Programs Matched",
+        "Enrichment Data", "Notes", "Referred By",
+    ]
+    worksheet = MagicMock()
+    worksheet.row_values.return_value = headers
+    result = {
+        "row": 5,
+        "score": 8,
+        "programs": ["fha", "usda"],
+        "outreach": "Hi Jordan!",
+        "enrichment": {"demographics": {"population": 100}},
+    }
+    main.write_result(worksheet, result)
+
+    # Map each update_cell(row, col, value) call to its header name.
+    written = {headers[c - 1]: v for (_, c, v) in
+               (call.args for call in worksheet.update_cell.call_args_list)}
+    assert written["Score"] == 8
+    assert written["Status"] == "Processed"
+    assert written["Outreach Draft"] == "Hi Jordan!"
+    assert written["Programs Matched"] == "fha, usda"
+    assert "population" in written["Enrichment Data"]  # JSON-serialized
 
 
 def test_lambda_handler_returns_summary():

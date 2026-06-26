@@ -24,3 +24,7 @@ venv/
 build/
 dist/
 *.egg-info/
+
+# gspread OAuth (user setup)
+oauth_credentials.json
+oauth_authorized_user.json

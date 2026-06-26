@@ -18,13 +18,23 @@ CENSUS_URL = "https://api.census.gov/data/2022/acs/acs5"
 REQUEST_TIMEOUT = 15  # seconds
 
 
+def _real_key(env_name: str):
+    """Return the env var only if it's a usable key (not blank/placeholder)."""
+    value = (os.environ.get(env_name) or "").strip()
+    if not value or value.upper() == "PLACEHOLDER":
+        return None
+    return value
+
+
 def enrich_lead(lead: dict) -> dict:
     """Enrich a single lead with property + demographic data from its ZIP code.
 
     Returns a new dict: the original lead plus an ``enrichment`` key holding
     ``property`` and ``demographics`` sub-dicts.
     """
-    zip_code = str(lead.get("zip_code") or lead.get("zip") or "").strip()
+    zip_code = str(
+        lead.get("Zip Code") or lead.get("zip_code") or lead.get("zip") or ""
+    ).strip()
     enrichment = {
         "zip_code": zip_code,
         "property": get_property_data(zip_code),
@@ -35,11 +45,12 @@ def enrich_lead(lead: dict) -> dict:
 
 def get_property_data(zip_code: str) -> dict:
     """Look up aggregate property data for a ZIP code via the BatchData API."""
-    api_key = os.environ.get("BATCHDATA_API_KEY")
+    api_key = _real_key("BATCHDATA_API_KEY")
     if not zip_code:
         return {"error": "missing zip_code"}
     if not api_key:
-        return {"error": "BATCHDATA_API_KEY not set"}
+        # BatchData has no keyless mode — skip the doomed request entirely.
+        return {"error": "BATCHDATA_API_KEY not configured"}
 
     try:
         resp = requests.post(
@@ -76,9 +87,12 @@ def get_census_data(zip_code: str) -> dict:
         "get": "NAME,B19013_001E,B01003_001E",
         "for": f"zip code tabulation area:{zip_code}",
     }
-    api_key = os.environ.get("CENSUS_API_KEY")
-    if api_key:
-        params["key"] = api_key
+    # The Census API requires a key — without one it returns a "missing key"
+    # HTML page (not JSON). Skip the doomed request when no real key is set.
+    api_key = _real_key("CENSUS_API_KEY")
+    if not api_key:
+        return {"error": "CENSUS_API_KEY not configured"}
+    params["key"] = api_key
 
     try:
         resp = requests.get(CENSUS_URL, params=params, timeout=REQUEST_TIMEOUT)

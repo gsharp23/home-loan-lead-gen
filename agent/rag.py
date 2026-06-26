@@ -82,16 +82,20 @@ def match_programs(lead: dict, k: int = 3, store: Chroma | None = None) -> list[
 
 
 def _lead_to_query(lead: dict) -> str:
-    """Turn a lead (enriched or not) into a natural-language retrieval query."""
+    """Turn a lead (enriched or not) into a natural-language retrieval query.
+
+    Uses the "Home Loan Leads" sheet columns (Zip Code, Budget) plus any
+    demographics added by enrichment.
+    """
     demo = (lead.get("enrichment") or {}).get("demographics") or {}
+    zip_code = lead.get("Zip Code") or lead.get("zip_code") or lead.get("zip") or ""
+    budget = lead.get("Budget") or lead.get("loan_amount") or ""
     parts = [
-        f"ZIP code {lead.get('zip_code') or lead.get('zip') or ''}",
-        f"loan amount {lead.get('loan_amount', '')}",
-        f"credit score {lead.get('credit_score', '')}",
-        f"annual income {lead.get('income', '')}",
-        f"property type {lead.get('property_type', '')}",
-        f"first-time buyer {lead.get('first_time_buyer', '')}",
+        f"ZIP code {zip_code}",
+        f"budget {budget}",
     ]
     if demo.get("median_household_income"):
         parts.append(f"area median income {demo['median_household_income']}")
+    if demo.get("name"):
+        parts.append(f"area {demo['name']}")
     return "Loan programs for: " + ", ".join(p for p in parts if p.strip().rstrip(":"))

@@ -6,8 +6,8 @@ How leads enter the system (upstream of this module):
         -> a prospect submits a lead form
     Zapier
         -> Trigger: Meta Lead Ads "New Lead"
-        -> normalizes the form fields (full_name, phone_number, email,
-           zip_code, budget)
+        -> normalizes the form fields into the sheet columns
+           (Name, Phone, Email, Zip Code, Budget)
         -> Action: Google Sheets "Create Row" in the "Home Loan Leads" sheet
     Google Sheets ("Home Loan Leads")
         -> each new submission becomes a new row
@@ -17,12 +17,12 @@ there: it reads the new rows Zapier created, then for each lead runs
 enrich -> match programs -> score -> draft outreach. Results are written back
 to the sheet and returned in the handler's summary.
 """
+import json
 import logging
 import os
 
 import gspread
 from dotenv import load_dotenv
-from google.oauth2.service_account import Credentials
 
 from agent.enrich import enrich_lead
 from agent.outreach import write_outreach
@@ -35,19 +35,26 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "Home Loan Leads")
-CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.readonly",
-]
-# A lead is "new" when this column is empty/falsey.
-PROCESSED_COLUMN = "processed"
+# OAuth (user-account) auth — matches how the sheet was created via
+# setup_google_sheet.py. These default to the project-local token files; override
+# with env vars if you keep them at the gspread default (~/.config/gspread/).
+OAUTH_CREDENTIALS = os.environ.get("GSPREAD_OAUTH_CREDENTIALS", "oauth_credentials.json")
+OAUTH_AUTHORIZED_USER = os.environ.get("GSPREAD_OAUTH_AUTHORIZED_USER", "oauth_authorized_user.json")
+# Sheet column headers (must match row 1 of "Home Loan Leads" exactly).
+# A lead is "new" when its Status cell is empty/falsey.
+STATUS_COLUMN = "Status"
+COL_SCORE = "Score"
+COL_OUTREACH = "Outreach Draft"
+COL_PROGRAMS = "Programs Matched"
+COL_ENRICHMENT = "Enrichment Data"
 
 
 def get_worksheet(sheet_name: str = SHEET_NAME):
-    """Authenticate with a service account and open the first worksheet."""
-    creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
-    client = gspread.authorize(creds)
+    """Authenticate as the user via gspread OAuth and open the first worksheet."""
+    client = gspread.oauth(
+        credentials_filename=OAUTH_CREDENTIALS,
+        authorized_user_filename=OAUTH_AUTHORIZED_USER,
+    )
     return client.open(sheet_name).sheet1
 
 
@@ -56,7 +63,7 @@ def read_new_leads(worksheet) -> list[dict]:
     records = worksheet.get_all_records()  # list of dicts keyed by header
     new_leads = []
     for i, row in enumerate(records, start=2):  # row 1 is the header
-        if not str(row.get(PROCESSED_COLUMN, "")).strip():
+        if not str(row.get(STATUS_COLUMN, "")).strip():
             new_leads.append({**row, "_row": i})
     logger.info("Found %d new lead(s) in '%s'", len(new_leads), SHEET_NAME)
     return new_leads
@@ -74,11 +81,17 @@ def process_lead(lead: dict, store=None) -> dict:
         "rationale": scoring["rationale"],
         "programs": sorted({p["program"] for p in programs}),
         "outreach": message,
+        "enrichment": enriched.get("enrichment", {}),
     }
 
 
 def write_result(worksheet, result: dict) -> None:
-    """Write the score/programs/outreach back to the lead's row, best-effort."""
+    """Write the results back into the lead's row, best-effort.
+
+    Maps to the sheet's columns: Score, Status, Outreach Draft,
+    Programs Matched, Enrichment Data. Setting Status marks the lead processed
+    so it isn't picked up again on the next run.
+    """
     row = result.get("row")
     if not row:
         return
@@ -88,10 +101,11 @@ def write_result(worksheet, result: dict) -> None:
         return headers.index(name) + 1 if name in headers else None
 
     updates = {
-        "score": result["score"],
-        "programs": ", ".join(result["programs"]),
-        "outreach": result["outreach"],
-        PROCESSED_COLUMN: "yes",
+        COL_SCORE: result["score"],
+        STATUS_COLUMN: "Processed",
+        COL_OUTREACH: result["outreach"],
+        COL_PROGRAMS: ", ".join(result["programs"]),
+        COL_ENRICHMENT: json.dumps(result.get("enrichment", {}), default=str),
     }
     for name, value in updates.items():
         c = col(name)

@@ -1,19 +1,21 @@
 # Anthropic Claude API
 anthropic>=0.40.0
 
-# Google Sheets
+# Google Sheets (gspread OAuth uses google-auth-oauthlib)
 gspread>=6.0.0
 google-auth>=2.30.0
+google-auth-oauthlib>=1.2.0
 
 # HTTP (BatchData + Census Bureau APIs)
 requests>=2.32.0
 
-# RAG: ChromaDB + LangChain
+# RAG: ChromaDB + LangChain + embedding model
 chromadb>=0.5.0
 langchain>=0.3.0
 langchain-community>=0.3.0
 langchain-chroma>=0.1.4
 langchain-text-splitters>=0.3.0
+sentence-transformers>=3.0.0
 
 # Config
 python-dotenv>=1.0.0
